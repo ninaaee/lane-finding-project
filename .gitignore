@@ -223,6 +223,3 @@ __marimo__/
 camera_cal/
 test_images/
 test_videos/
-
-# Generated files
-output_images/
