@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Input datasets
+camera_cal/
+test_images/
+test_videos/
+
+# Generated files
+output_images/
