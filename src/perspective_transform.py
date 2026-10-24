@@ -3,6 +3,8 @@ import cv2 as cv
 import numpy as np
 import os
 
+from camera_utils import undistort_for_image
+from config import APPLY_ROI, IMAGE_NAME, THRESHOLD_METHOD
 from thresholding import threshold_image
 
 
@@ -25,11 +27,12 @@ def get_perspective_matrices(width, height):
 
     # Source points selected from straight_lines1.jpg
     src = np.float32([
-        [230 * scale_x, 700 * scale_y],
-        [575 * scale_x, 455 * scale_y],
-        [710 * scale_x, 455 * scale_y],
-        [1050 * scale_x, 700 * scale_y]
+        [279 * scale_x, 674 * scale_y],   # Bottom-left
+        [602 * scale_x, 446 * scale_y],   # Top-left
+        [676 * scale_x, 446 * scale_y],   # Top-right
+        [1031 * scale_x, 674 * scale_y]   # Bottom-right
     ])
+
 
     # Destination points in matching order
     dst = np.float32([
@@ -78,33 +81,25 @@ if __name__ == "__main__":
 
     mtx = calibration["mtx"]
     dist = calibration["dist"]
+    calibration_size = tuple(calibration["image_size"])
 
     # --------------------------------------------
     # 2. Load test image
     # --------------------------------------------
 
-    image_name = "straight_lines1"
-
-    image = cv.imread(f"test_images/{image_name}.jpg")
+    image = cv.imread(f"test_images/{IMAGE_NAME}.jpg")
 
     if image is None:
         raise RuntimeError("Failed to load test image.")
 
     height, width = image.shape[:2]
 
-    calibration_size = tuple(calibration["image_size"])
-
-    if (width, height) != calibration_size:
-        raise RuntimeError(
-            "Image resolution does not match calibration."
-        )
-
     # --------------------------------------------
     # 3. Correct lens distortion
     # --------------------------------------------
 
-    undistorted = cv.undistort(
-        image, mtx, dist, None, mtx
+    undistorted = undistort_for_image(
+        image, mtx, dist, calibration_size
     )
 
     # --------------------------------------------
@@ -113,7 +108,8 @@ if __name__ == "__main__":
 
     binary = threshold_image(
         undistorted,
-        method="color"
+        method=THRESHOLD_METHOD,
+        apply_roi=APPLY_ROI
     )
 
     # --------------------------------------------
@@ -160,17 +156,17 @@ if __name__ == "__main__":
     os.makedirs("output_images", exist_ok=True)
 
     cv.imwrite(
-        f"output_images/{image_name}_perspective_source.png",
+        f"output_images/{IMAGE_NAME}_perspective_source.png",
         preview
     )
 
     cv.imwrite(
-        f"output_images/{image_name}_warped_color.png",
+        f"output_images/{IMAGE_NAME}_warped_color.png",
         warped_color
     )
 
     cv.imwrite(
-        f"output_images/{image_name}_warped_binary.png",
+        f"output_images/{IMAGE_NAME}_warped_binary.png",
         warped_binary * 255
     )
 

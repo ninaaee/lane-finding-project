@@ -3,18 +3,25 @@ import cv2 as cv
 import numpy as np
 import os
 
+from camera_utils import undistort_for_image
+from config import IMAGE_NAME
 
-def threshold_image(undistorted, method="color"):
+
+def threshold_image(undistorted, method="color", apply_roi=True):
     """
     Extract lane marking candidates from an undistorted image.
 
     Args:
         undistorted: Input BGR image.
         method: "color", "sobel", or "combined".
+        apply_roi: Whether to apply a trapezoidal region of interest.
 
     Returns:
         Binary image containing values 0 and 1.
     """
+
+    if undistorted is None or undistorted.size == 0:
+        raise ValueError("Input image must not be empty.")
 
     # --------------------------------------------
     # 1. Sobel X thresholding
@@ -27,7 +34,6 @@ def threshold_image(undistorted, method="color"):
     )
 
     abs_sobel_x = np.absolute(sobel_x)
-
     max_gradient = np.max(abs_sobel_x)
 
     if max_gradient > 0:
@@ -55,7 +61,7 @@ def threshold_image(undistorted, method="color"):
     s_channel = hls[:, :, 2]
 
     # Detect white lane markings
-    white_binary = np.zeros_like(l_channel)
+    white_binary = np.zeros_like(l_channel, dtype=np.uint8)
 
     white_binary[
         (l_channel >= 200) &
@@ -63,7 +69,7 @@ def threshold_image(undistorted, method="color"):
     ] = 1
 
     # Detect yellow lane markings
-    yellow_binary = np.zeros_like(h_channel)
+    yellow_binary = np.zeros_like(h_channel, dtype=np.uint8)
 
     yellow_binary[
         (h_channel >= 15) &
@@ -73,7 +79,7 @@ def threshold_image(undistorted, method="color"):
     ] = 1
 
     # Combine white and yellow masks
-    color_binary = np.zeros_like(l_channel)
+    color_binary = np.zeros_like(l_channel, dtype=np.uint8)
 
     color_binary[
         (white_binary == 1) |
@@ -91,12 +97,10 @@ def threshold_image(undistorted, method="color"):
         binary = sobel_binary
 
     elif method == "combined":
-        binary = np.zeros_like(color_binary)
-
-        binary[
-            (sobel_binary == 1) |
-            (color_binary == 1)
-        ] = 1
+        binary = np.logical_or(
+            sobel_binary,
+            color_binary
+        ).astype(np.uint8)
 
     else:
         raise ValueError(
@@ -104,12 +108,15 @@ def threshold_image(undistorted, method="color"):
         )
 
     # --------------------------------------------
-    # 4. Region of Interest
+    # 4. Optional Region of Interest
     # --------------------------------------------
+
+    if not apply_roi:
+        return binary
 
     height, width = binary.shape
 
-    roi_mask = np.zeros_like(binary)
+    roi_mask = np.zeros_like(binary, dtype=np.uint8)
 
     vertices = np.array([[
         (int(width * 0.05), height - 1),
@@ -127,47 +134,94 @@ def threshold_image(undistorted, method="color"):
 
 if __name__ == "__main__":
 
-    # Load calibration parameters
+    # --------------------------------------------
+    # 1. Load calibration parameters
+    # --------------------------------------------
+
     calibration = np.load("output_images/calibration.npz")
 
     mtx = calibration["mtx"]
     dist = calibration["dist"]
+    calibration_size = tuple(calibration["image_size"])
 
-    # Load test image
-    image = cv.imread("test_images/test1.jpg")
+    # --------------------------------------------
+    # 2. Load test image
+    # --------------------------------------------
+
+    image = cv.imread(
+        f"test_images/{IMAGE_NAME}.jpg"
+    )
 
     if image is None:
         raise RuntimeError("Failed to load test image.")
 
-    # Check image resolution
-    image_size = (image.shape[1], image.shape[0])
-    calibration_size = tuple(calibration["image_size"])
+    # --------------------------------------------
+    # 3. Correct lens distortion
+    # --------------------------------------------
 
-    if image_size != calibration_size:
-        raise RuntimeError(
-            "Image resolution does not match calibration."
-        )
-
-    # Correct lens distortion
-    undistorted = cv.undistort(image, mtx, dist, None, mtx)
-
-    # Apply thresholding
-    final_binary = threshold_image(
-        undistorted,
-        method="color"
+    undistorted = undistort_for_image(
+        image, mtx, dist, calibration_size
     )
 
-    # Save result
+    # --------------------------------------------
+    # 4. Apply different thresholding methods
+    # --------------------------------------------
+
+    color_binary = threshold_image(
+        undistorted,
+        method="color",
+        apply_roi=True
+    )
+
+    sobel_binary = threshold_image(
+        undistorted,
+        method="sobel",
+        apply_roi=True
+    )
+
+    combined_binary = threshold_image(
+        undistorted,
+        method="combined",
+        apply_roi=True
+    )
+
+    # --------------------------------------------
+    # 5. Save results
+    # --------------------------------------------
+
     os.makedirs("output_images", exist_ok=True)
 
-    cv.imwrite(
-        "output_images/color_roi_test1.png",
-        final_binary * 255
+    color_path = f"output_images/{IMAGE_NAME}_color.png"
+    sobel_path = f"output_images/{IMAGE_NAME}_sobel.png"
+    combined_path = f"output_images/{IMAGE_NAME}_combined.png"
+
+    cv.imwrite(color_path, color_binary * 255)
+    cv.imwrite(sobel_path, sobel_binary * 255)
+    cv.imwrite(combined_path, combined_binary * 255)
+
+    print(f"Saved: {color_path}")
+    print(f"Saved: {sobel_path}")
+    print(f"Saved: {combined_path}")
+
+    # --------------------------------------------
+    # 6. Display comparison
+    # --------------------------------------------
+
+    comparison = np.hstack((
+        color_binary * 255,
+        sobel_binary * 255,
+        combined_binary * 255
+    ))
+
+    cv.namedWindow(
+        "Color | Sobel X | Combined",
+        cv.WINDOW_NORMAL
     )
 
-    # Display result
-    cv.namedWindow("Color Threshold + ROI", cv.WINDOW_NORMAL)
-    cv.imshow("Color Threshold + ROI", final_binary * 255)
+    cv.imshow(
+        "Color | Sobel X | Combined",
+        comparison
+    )
 
     cv.waitKey(0)
     cv.destroyAllWindows()

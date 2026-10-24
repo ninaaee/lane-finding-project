@@ -3,21 +3,27 @@ import cv2 as cv
 import numpy as np
 import os
 
+from camera_utils import undistort_for_image
+from config import IMAGE_NAME
+
 # Load previously calculated camera calibration parameters
 calibration = np.load("output_images/calibration.npz")
 
 mtx = calibration["mtx"]
 dist = calibration["dist"]
+calibration_size = tuple(calibration["image_size"])
 
 # Load calibration image
-image = cv.imread("camera_cal/calibration2.jpg")
-#image = cv.imread("test_images/test1.jpg")
+#image = cv.imread("camera_cal/calibration2.jpg")
+image = cv.imread(f"test_images/{IMAGE_NAME}.jpg")
 
 if image is None:
     raise RuntimeError("Failed to load calibration image.")
 
 # Correct lens distortion
-undistorted = cv.undistort(image, mtx, dist, None, mtx)
+undistorted = undistort_for_image(
+    image, mtx, dist, calibration_size
+)
 
 # Compare original and corrected images
 comparison = np.hstack((image, undistorted))
@@ -37,7 +43,7 @@ cv.imshow("Original vs Undistorted", display)
 os.makedirs("output_images", exist_ok=True)
 
 cv.imwrite(
-    "output_images/undistorted_chessboard.jpg",
+    f"output_images/{IMAGE_NAME}_undistorted.jpg",
     comparison
 )
 
